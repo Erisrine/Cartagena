@@ -1,69 +1,87 @@
-﻿using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.CookiePolicy;
-using Microsoft.Extensions.Hosting;
-using TwitchLib.Client;
-using TwitchLib.Client.Models;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text.Json;
-using Cartagena;
-using Cartagena.Models;
-using System.Reflection.Metadata;
+﻿using Cartagena;
 
 class Program
 {
     private const string CLIENT_ID = "cnfaczx3u66tev6siqdv7fm33224a0";
+    private static string? clientSecret = null;
+    private static TwitchBot? twitchBot = null;
 
     static async Task Main(string[] args)
     {
-        Console.Write("Enter your Twitch App's CLIENT SECRET\n");
-        string clientSecret = ReadSecretFromConsole();
-        var auth = new TwitchAuth(CLIENT_ID, clientSecret);
-
-        await auth.RunAuthFlowAsync();
-
-        Console.WriteLine($"Authenticated as: {auth.DisplayName}");
-        RunTwitchBot(auth.UserLogin!, auth.AccessToken!, CLIENT_ID);
-        await Task.Delay(-1);
+        await RunConsoleCommandFlow();
     }
 
-    static void RunTwitchBot(string username, string token, string clientId)
+    private static async Task RunConsoleCommandFlow()
     {
-        var creds = new ConnectionCredentials(username, token);
-
-        var client = new TwitchClient();
-        client.Initialize(creds, username);
-
-        client.OnConnected += (s, e) =>
+        var commands = new Dictionary<string, Func<string[], Task>>(StringComparer.OrdinalIgnoreCase)
         {
-            Console.WriteLine($"✅ Connected to Twitch as {username}");
-        };
+            ["secret"] = async args => await SetClientSecret(),
+            ["twitchbot"] = async args => await TwitchBot(args)
 
-        client.OnMessageReceived += (s, e) =>
+        };
+        
+        while (true)
         {
-            Console.WriteLine($"[{e.ChatMessage.Username}] {e.ChatMessage.Message}");
+            string? input = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(input)) continue;
 
-            if (e.ChatMessage.Message == "!hello")
+            string[] parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            string cmd = parts[0];
+            string[] args = parts.Length > 1 ? parts[1..] : Array.Empty<string>();
+
+            if (commands.TryGetValue(cmd, out var action))
             {
-                client.SendMessage(e.ChatMessage.Channel, $"Hello, {e.ChatMessage.Username}!");
+                await action(args);
             }
-
-            if (e.ChatMessage.Message == "!getlatest")
+            else
             {
-                // Run the async API call without blocking the bot
-                Task.Run(async () =>
-                {
-                    var latestUrl = await GetLastestVideoURL(e.ChatMessage.Channel, clientId, token);
-                    if (!string.IsNullOrEmpty(latestUrl))
-                        client.SendMessage(e.ChatMessage.Channel, $"Latest VOD: {latestUrl}");
-                    else
-                        client.SendMessage(e.ChatMessage.Channel, "Could not fetch the latest VOD.");
-                });
+                Console.WriteLine($"Unknown command: {cmd}");
             }
-        };
-
-        client.Connect();
+        }
     }
+
+    //TODO this flow sucks fucking balls, make a better one.
+    private static async Task TwitchBot(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: bot <subcommand>");
+            Console.WriteLine("Subcommands: start, stop");
+            return;
+        }
+        if (twitchBot == null || !twitchBot.ClientIsConnected())
+        {
+            Console.WriteLine("Bot is not connected or not authenticated!");
+        }
+        if (clientSecret == null)
+        {
+            Console.WriteLine("Client Secret not set! Do 'secret'");
+            return;
+        }
+
+        if (args[0].ToLower() == "start")
+        {
+            if (twitchBot == null)
+            {
+                twitchBot = new TwitchBot(CLIENT_ID, clientSecret);
+            }
+            await twitchBot.InitializeAsync();
+        }
+
+        if (args[0].ToLower() == "stop")
+        {
+            //TODO
+        }
+    }
+
+    private static async Task SetClientSecret()
+    {
+        Console.Write("Enter your Twitch App's CLIENT SECRET:\n");
+        clientSecret = ReadSecretFromConsole();
+        Console.WriteLine("Client secret set.");
+        await Task.CompletedTask;
+    } 
+    
 
     private static string ReadSecretFromConsole()
     {
@@ -89,31 +107,6 @@ class Program
 
         Console.WriteLine();
         return input;
-    }
-
-    static async Task<string?> GetLastestVideoURL(string broadcasterUsername, string clientId, string accessToken)
-    {
-        using var http = new HttpClient();
-
-        http.DefaultRequestHeaders.Add("Client-Id", clientId);
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-        var userResponse = await http.GetAsync($"https://api.twitch.tv/helix/users?login={broadcasterUsername}");
-        if (!userResponse.IsSuccessStatusCode) { return null; }
-
-        using var userStream = await userResponse.Content.ReadAsStreamAsync();
-        using var userJson = JsonDocument.Parse(userStream);
-        var userId = userJson.RootElement.GetProperty("data")[0].GetProperty("id").GetString();
-
-        var videoResponse = await http.GetAsync($"https://api.twitch.tv/helix/videos?user_id={userId}&type=archive&first=1");
-        if (!videoResponse.IsSuccessStatusCode) { return null; }
-
-        using var videoStream = await videoResponse.Content.ReadAsStreamAsync();
-        using var videoJson = JsonDocument.Parse(videoStream);
-
-        var videoUrl = videoJson.RootElement.GetProperty("data")[0].GetProperty("url").GetString();
-        return videoUrl;
-
     }
 }
 
