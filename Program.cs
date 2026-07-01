@@ -1,112 +1,162 @@
-﻿using Cartagena;
+﻿using System.Threading.Tasks;
+using Cartagena;
+using Cartagena.Menu;
+using Cartagena.Models;
+using Spectre.Console;
+
 
 class Program
 {
-    private const string CLIENT_ID = "cnfaczx3u66tev6siqdv7fm33224a0";
+    private static string? clientId = null;
     private static string? clientSecret = null;
     private static TwitchBot? twitchBot = null;
+    private static Config? loadedConfig = null;
+
 
     static async Task Main(string[] args)
     {
-        await RunConsoleCommandFlow();
+        if (!args.Contains("-nosplash".ToLower()))
+            await Splash();
+
+        AnsiConsole.Clear();
+
+        bool exit = false;
+
+        while (!exit)
+        {
+            var mainMenuChoice = await Menus.MainM();
+            switch (mainMenuChoice)
+            {
+                case "Config Menu":
+                    await HandleConfigMenu();
+                    break;
+
+                case "Twitch Bot Menu":
+
+                    break;
+
+                case "Close App":
+                    await ShutdownApplication();
+                    exit = true; //this should never run, but still.
+                    break;
+                default:
+                    AnsiConsole.WriteLine($"[red]Something seems to have gone wrong![/]");
+                    break;
+            }
+            if (!exit)
+            {
+                await Menus.WaitForAnyKeyAsync();
+                AnsiConsole.Clear(); // Optional: clear screen between menu cycles
+            }
+        }
     }
 
-    private static async Task RunConsoleCommandFlow()
+    private static async Task HandleConfigMenu()
     {
-        var commands = new Dictionary<string, Func<string[], Task>>(StringComparer.OrdinalIgnoreCase)
+        bool exit = false;
+        while (!exit)
         {
-            ["secret"] = async args => await SetClientSecret(),
-            ["twitchbot"] = async args => await TwitchBot(args)
+            var configMenuChoice = await Menus.Configuration();
+            switch (configMenuChoice)
+            {
+                case "New Config":
+                    await ConfigManager.NewConfig();
+                    break;
 
-        };
+                case "Load Config":
+                    Config? cfg = await ConfigManager.LoadConfig();
+                    if (cfg != null) { loadedConfig = cfg; }
+                    break;
+
+                case "View Loaded Config":
+                    await ViewLoadedConfig();
+                    break;
+                
+                case "View Saved Config":
+                    await ViewSavedConfig();
+                    break;
+
+                case "Go Back":
+                    exit = true;
+                    break;
+            }
+        }
+    }
+
+    private static async Task HandleBotMenu()
+    {
         
-        while (true)
+    }
+
+    public static async Task ViewSavedConfig()
+    {
+        Config? cfg = await ConfigManager.LoadConfig();
+
+        if (cfg != null)
         {
-            string? input = Console.ReadLine();
-            if (string.IsNullOrWhiteSpace(input)) continue;
-
-            string[] parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            string cmd = parts[0];
-            string[] args = parts.Length > 1 ? parts[1..] : Array.Empty<string>();
-
-            if (commands.TryGetValue(cmd, out var action))
-            {
-                await action(args);
-            }
-            else
-            {
-                Console.WriteLine($"Unknown command: {cmd}");
-            }
+            await Menus.ViewJSON(cfg, "config.json");
+            await Menus.WaitForAnyKeyAsync("Press any key to continue...");
         }
     }
 
-    //TODO this flow sucks fucking balls, make a better one.
-    private static async Task TwitchBot(string[] args)
+    public static async Task ViewLoadedConfig()
     {
-        if (args.Length == 0)
-        {
-            Console.WriteLine("Usage: bot <subcommand>");
-            Console.WriteLine("Subcommands: start, stop");
-            return;
-        }
-        if (twitchBot == null || !twitchBot.ClientIsConnected())
-        {
-            Console.WriteLine("Bot is not connected or not authenticated!");
-        }
-        if (clientSecret == null)
-        {
-            Console.WriteLine("Client Secret not set! Do 'secret'");
-            return;
-        }
+        Config? cfg = loadedConfig;
 
-        if (args[0].ToLower() == "start")
+        if (cfg != null)
         {
-            if (twitchBot == null)
-            {
-                twitchBot = new TwitchBot(CLIENT_ID, clientSecret);
-            }
-            await twitchBot.InitializeAsync();
+            await Menus.ViewJSON(cfg, "Loaded Config");
+            await Menus.WaitForAnyKeyAsync("Press any key to continue...");
         }
-
-        if (args[0].ToLower() == "stop")
+        else
         {
-            //TODO
+            await Menus.WaitForAnyKeyAsync("No Config is loaded! Please load or create a valid Config.\nPress any key to continue...");
         }
     }
 
-    private static async Task SetClientSecret()
+    private static async Task ShutdownApplication()
     {
-        Console.Write("Enter your Twitch App's CLIENT SECRET:\n");
-        clientSecret = ReadSecretFromConsole();
-        Console.WriteLine("Client secret set.");
-        await Task.CompletedTask;
-    } 
-    
+        //TODO Do more and more gracefully here
+        AnsiConsole.Clear();
+        Environment.Exit(0);
+    }
 
-    private static string ReadSecretFromConsole()
+    //Splash art because I'm fancy like that
+    private static string asciiArti = @"                                                    
+                        @@@@                        
+                        @@@@                        
+                        @@@@                        
+                       @@@@@                        
+                      @@@@@@@@                      
+                  @@@@@@@@@@@@@@@@                  
+                @@@@@@@      @@@@@@@                
+              @@@@@  @@@@@@@@@@  @@@@@              
+             @@@@  @@@@@@  @@@@@@  @@@@             
+            @@@@  @@@@        @@@@@ @@@@            
+            @@@@ @@@@   @@@@    @@@  @@@            
+            @@@ @@@@   @@@@@@   @@@@ @@@            
+            @@@ @@@@   @@@@@@   @@@@ @@@            
+            @@@@ @@@@   @@@@    @@@  @@@            
+            @@@@  @@@@        @@@@@ @@@@            
+             @@@@  @@@@@@@@@@@@@@  @@@@             
+              @@@@@  @@@@@@@@@@  @@@@@              
+                @@@@@@@      @@@@@@@                
+               @@@@@@@@@@@@@@@@@@@@@                
+              @@@@@@@  @@@@@@ @@@@@@@               
+              @@@@@@   @@@@@@   @@@@@@              
+                 @@    @@@@@@    @@                 
+                       @@@@@@                       
+                       @@@@@@                       ";
+    private static async Task Splash()
     {
-        string input = "";
-        ConsoleKeyInfo key;
-
-        do
-        {
-            key = Console.ReadKey(true);
-            if (key.Key == ConsoleKey.Enter)
-                break;
-            if (key.Key == ConsoleKey.Backspace && input.Length > 0)
-            {
-                input = input.Substring(0, input.Length - 1);
-                Console.Write("\b \b");
-            }
-            else if (!char.IsControl(key.KeyChar))
-            {
-                input += key.KeyChar;
-                Console.Write("*"); // show asterisk instead of the actual character
-            }
-        } while (true);
-
-        Console.WriteLine();
-        return input;
+        var version = System.Reflection.Assembly.GetEntryAssembly()!.GetName().Version;
+        AnsiConsole.Clear();
+        AnsiConsole.Write(new Markup($"[blue]{asciiArti}[/]").Centered());
+        AnsiConsole.Write("\n");
+        AnsiConsole.Write(new FigletText("CARTAGENA").Centered().Color(Color.Red));
+        AnsiConsole.Write(new Markup($"[bold blue]A Speedrun Marathon bot by Eris\nv. {version}[/]\n").Centered());
+        await Task.Delay(5000);
+        AnsiConsole.Clear();
     }
 }
 

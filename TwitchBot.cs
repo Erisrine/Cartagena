@@ -1,4 +1,6 @@
+using Cartagena.Commands;
 using Cartagena.Twitch.API;
+using Spectre.Console;
 using TwitchLib.Client;
 using TwitchLib.Client.Events;
 using TwitchLib.Client.Models;
@@ -56,15 +58,15 @@ namespace Cartagena
 
         public void ApplyNewToken(string newAccessToken)
         {
-            Console.WriteLine("Access token updated in TwitchBot");
+            AnsiConsole.MarkupLine("Access token updated in TwitchBot");
             api?.UpdateAccessToken(newAccessToken);
 
             if (client.IsConnected)
             {
-                Console.WriteLine("Refreshing Twitch client credentials...");
+                AnsiConsole.MarkupLine("Refreshing Twitch client credentials...");
                 client.Disconnect();
                 client.SetConnectionCredentials(new ConnectionCredentials(auth.UserLogin, newAccessToken));
-                Console.WriteLine($"Reconnected to Twitch with new token as {auth.UserLogin}");
+                AnsiConsole.MarkupLine($"Reconnected to Twitch with new token as {auth.UserLogin}");
             }
             else
             {
@@ -97,7 +99,7 @@ namespace Cartagena
 
                 if (e.ChatMessage.Message == "!highlight")
                 {
-
+                    Highlight.Execute();
                 }
                 ;
             };
